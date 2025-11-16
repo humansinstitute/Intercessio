@@ -1,10 +1,12 @@
 # Intercessio
 
-A minimal Nostr signer CLI built on top of the [applesauce](https://github.com/hzrd149/applesauce) libraries. It can:
+Self-hosted remote signing bunker for Nostr. Built for macOS today (keys live in Secure Keychain; PRs welcome for more platforms).
 
-- Generate and persist a local private key (`nsec`)
-- Respond to `nostrconnect://` URIs so you can log into remote apps
-- Spin up a `bunker://` provider that remote apps can pair with via QR/code
+Unique aspects:
+
+1. Keychain security
+2. Policy enforcement (“vibe your own”): simple TypeScript functions decide what to sign
+3. Coming soon: approvals via multiple channels
 
 ## Prerequisites
 
@@ -29,6 +31,9 @@ intercessio server           # or: bun run server
 
 # in another terminal, run the interactive CLI menu
 bun run start             # or: bun run client
+
+# launch the web dashboard (separate terminal)
+bun run webui              # http://localhost:4173 by default
 
 # or pass a subcommand through the setup runner
 bun run start -- nostr-connect
