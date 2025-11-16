@@ -17,6 +17,7 @@
     "dev": "bun run ./src/index.ts",
     "server": "bun run ./src/server.ts",
     "webui": "bun run ./src/web/server.ts",
+    "stack": "bun run ./scripts/start-all.ts",
     "start": "bun run scripts/start.ts",
     "client": "bun run scripts/start.ts",
     "stop": "bun run scripts/stop.ts",
