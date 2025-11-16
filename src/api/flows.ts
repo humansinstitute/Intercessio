@@ -7,8 +7,8 @@ import { getActiveKeyId } from "./key-store.js";
 import { PromptSession, parseListInput } from "./prompts.js";
 import { ensureServerRunning } from "./server-control.js";
 import { sendIPCRequest } from "./ipc.js";
-
-type RelayInput = string[] | undefined;
+import { normalizeRelays } from "./relays.js";
+import { listTemplateSummaries, DEFAULT_TEMPLATE_ID } from "./signing-templates.js";
 
 export type NostrConnectFlowOptions = {
   uri?: string;
@@ -16,6 +16,7 @@ export type NostrConnectFlowOptions = {
   autoApprove?: boolean;
   keyId?: string;
   alias?: string;
+  template?: string;
 };
 
 export type BunkerFlowOptions = {
@@ -24,17 +25,8 @@ export type BunkerFlowOptions = {
   secret?: string;
   keyId?: string;
   alias?: string;
+  template?: string;
 };
-
-function normalizeRelays(relays: RelayInput): string[] {
-  const list = relays?.length ? relays : DEFAULT_RELAYS;
-  const normalized = list.map((relay) => {
-    let value = relay.trim();
-    if (!/^wss?:\/\//i.test(value)) value = `wss://${value}`;
-    return value.replace(/\/+$/, "");
-  });
-  return Array.from(new Set(normalized));
-}
 
 function randomSecret() {
   return randomBytes(16).toString("hex");
@@ -45,6 +37,33 @@ async function resolveKeyId(provided?: string) {
   const active = await getActiveKeyId();
   if (!active) throw new Error("No active key selected. Run `bun start` and choose a key first.");
   return active;
+}
+
+function ensureTemplate(templateId?: string) {
+  const summaries = listTemplateSummaries();
+  if (templateId) {
+    const match = summaries.find((tpl) => tpl.id === templateId);
+    if (!match) throw new Error(`Unknown signing policy "${templateId}".`);
+    return templateId;
+  }
+  return DEFAULT_TEMPLATE_ID;
+}
+
+async function promptForTemplate(prompter: PromptSession, provided?: string) {
+  const summaries = listTemplateSummaries();
+  if (provided) return ensureTemplate(provided);
+  console.log("Available signing policies:");
+  summaries.forEach((template, index) => {
+    console.log(`  ${index + 1}) ${template.label} - ${template.description}`);
+  });
+  const defaultIndex = summaries.findIndex((tpl) => tpl.id === DEFAULT_TEMPLATE_ID);
+  const answer = await prompter.input(
+    "Select signing policy (enter number)",
+    defaultIndex >= 0 ? String(defaultIndex + 1) : "1",
+  );
+  const index = Number.parseInt(answer.trim(), 10);
+  if (!Number.isNaN(index) && summaries[index - 1]) return summaries[index - 1]!.id;
+  return summaries[0]?.id ?? DEFAULT_TEMPLATE_ID;
 }
 
 export async function runNostrConnectFlow(options: NostrConnectFlowOptions, prompter: PromptSession) {
@@ -67,6 +86,7 @@ export async function runNostrConnectFlow(options: NostrConnectFlowOptions, prom
   const alias = (await prompter.input("Alias for this connection", aliasDefault)).trim() || aliasDefault;
 
   const keyId = await resolveKeyId(options.keyId);
+  const template = await promptForTemplate(prompter, options.template);
   await ensureServerRunning();
   const response = await sendIPCRequest({
     type: "start-nostr-connect",
@@ -75,6 +95,7 @@ export async function runNostrConnectFlow(options: NostrConnectFlowOptions, prom
     relays,
     uri,
     autoApprove,
+    template,
   });
   if (!response.ok) {
     const message = "error" in response ? response.error : "Failed to start nostr connect session.";
@@ -105,6 +126,7 @@ export async function runBunkerFlow(options: BunkerFlowOptions, prompter: Prompt
   const keyId = await resolveKeyId(options.keyId);
   const aliasDefault = options.alias ?? `Bunker ${new Date().toLocaleString()}`;
   const alias = (await prompter.input("Alias for this bunker session", aliasDefault)).trim() || aliasDefault;
+  const template = await promptForTemplate(prompter, options.template);
   await ensureServerRunning();
   const response = await sendIPCRequest({
     type: "start-bunker",
@@ -113,6 +135,7 @@ export async function runBunkerFlow(options: BunkerFlowOptions, prompter: Prompt
     relays,
     secret,
     autoApprove,
+    template,
   });
 
   if (!response.ok || !response.bunkerUri) {

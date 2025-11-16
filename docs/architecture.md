@@ -7,6 +7,7 @@ This document explains how `Intercessio` is organized so future changes can targ
 | Component | Responsibility |
 |-----------|----------------|
 | CLI client (`src/index.ts`, `src/api/*`) | Interactive experience: key management, prompting for relays/secrets, sending instructions to the server via IPC |
+| Web UI (`src/web/server.ts`) | Optional Bun-powered HTTP server that exposes the same IPC actions over REST + a single-page dashboard for keys, bunker codes, and signing activity |
 | Signing server (`src/server.ts`) | Long-lived daemon that keeps `NostrConnectProvider` instances alive, signs events, and restores state on restart |
 | Key store (`src/api/key-store.ts`) | Tracks key metadata (`keys.json` + `state.json`) and stores secrets in macOS Keychain |
 | Session store (`~/.intercessio/intercessio.db`) | SQLite database (via Bun's built-in `bun:sqlite`) containing all bunker / nostrconnect sessions, aliases, relay lists, and status |
@@ -43,6 +44,13 @@ This document explains how `Intercessio` is organized so future changes can targ
   - `record`: persisted metadata (`SessionRecord` from `src/api/db.ts`).
   - `provider`: the running `NostrConnectProvider`.
   - When a client connects, the server updates `last_client`, `status`, and logs activity.
+- Records an in-memory activity feed (`src/api/activity-log.ts`) for connect/sign events that can be queried via the IPC `list-activity` request (used by the Web UI).
+
+### Web UI (`src/web/server.ts`)
+
+- Provides a small Bun HTTP server (`bun run webui`) that serves a static dashboard + JSON API.
+- Relies entirely on the IPC layer, so it reflects the same state as the CLI (keys, sessions, bunker URIs, and activity stream).
+- Endpoints cover key CRUD (`/api/keys/*`), bunker requests (`/api/bunker`), live session status, and recent signing events.
 
 ### Storage
 
@@ -53,6 +61,9 @@ This document explains how `Intercessio` is organized so future changes can targ
 - **Sessions** (`src/api/db.ts`):
   - SQLite file `~/.intercessio/intercessio.db` with `sessions` table containing id, type (`bunker` / `nostr-connect`), key id, alias, relays (JSON), secret (for bunker), URI (for nostrconnect), auto-approve flag, status, timestamps, and `active` flag.
   - Helper functions provide CRUD operations used by both server and CLI (list sessions, rename, deactivate/delete).
+- **Activity Feed** (`src/api/activity-log.ts`):
+  - In-memory ring buffer tracking session lifecycle, provider connections, and sign requests/decisions.
+  - Exposed through the IPC `list-activity` command so that non-CLI clients can show “what’s being signed”.
 
 ### IPC protocol
 
@@ -60,7 +71,7 @@ Defined in `src/api/ipc.ts` as TypeScript discriminated unions. Key request type
 
 - `start-bunker` (keyId, alias, relays, secret?, autoApprove)
 - `start-nostr-connect` (keyId, alias, relays, uri, autoApprove)
-- `list-sessions` / `stop-session` / `delete-session` / `rename-session`
+- `list-sessions` / `list-activity` / `stop-session` / `delete-session` / `rename-session`
 - `ping` / `shutdown`
 
 Responses are `{ ok: true, ... }` or `{ ok: false, error }`. The client uses `sendIPCRequest` to open the Unix socket, write JSON + newline, then wait for the newline-terminated JSON response.
@@ -94,6 +105,7 @@ client request ---> server creates SessionRecord ---> runtime provider starts
 | `intercessio sessions stop <id>` | Sends `stop-session`, leaves metadata |
 | `intercessio sessions delete <id>` | Sends `delete-session`, removes metadata |
 | `intercessio sessions rename <id> <alias>` | Sends `rename-session`, updates DB |
+| `intercessio bunker-codes` | Lists bunker sessions along with their URIs/relays |
 | `bun run stop` | Sends `shutdown`, server terminates gracefully |
 
 With this layout, future changes can target a specific layer:

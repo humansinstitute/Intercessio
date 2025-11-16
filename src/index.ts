@@ -15,7 +15,7 @@ import {
 import { runBunkerFlow, runNostrConnectFlow } from "./api/flows.js";
 import { DEFAULT_RELAYS } from "./api/constants.js";
 import { log } from "./api/logger.js";
-import { sendIPCRequest } from "./api/ipc.js";
+import { sendIPCRequest, SessionInfo } from "./api/ipc.js";
 import { ensureServerRunning } from "./api/server-control.js";
 
 const program = new Command();
@@ -61,24 +61,128 @@ async function ensureKeySelected(prompter: PromptSession): Promise<KeyMetadata> 
   }
 }
 
+async function fetchSessions(): Promise<SessionInfo[]> {
+  await ensureServerRunning();
+  const response = await sendIPCRequest({ type: "list-sessions" });
+  if (!response.ok || !response.sessions) throw new Error("Failed to fetch sessions from server.");
+  return response.sessions;
+}
+
+async function printSessionsList() {
+  const sessions = await fetchSessions();
+  if (sessions.length === 0) {
+    console.log("No sessions have been created yet.");
+    return;
+  }
+  for (const session of sessions) {
+    const status = session.active ? session.status : "stopped";
+    const label = session.alias || session.id;
+    console.log(
+      `${session.id} | [${session.type}] ${label} | key=${session.keyId} | relays=${session.relays.join(", ")} | status=${status} | policy=${session.template}`,
+    );
+    if (session.uri) console.log(`  uri: ${session.uri}`);
+    if (session.lastClient) console.log(`  last client: ${session.lastClient}`);
+  }
+}
+
+async function printBunkerCodes() {
+  const sessions = await fetchSessions();
+  const bunkers = sessions.filter((session) => session.type === "bunker");
+  if (bunkers.length === 0) {
+    console.log("No bunker sessions found. Start one with `intercessio bunker` or the interactive menu.");
+    return;
+  }
+  for (const session of bunkers) {
+    const label = session.alias || session.id;
+    const status = session.active ? session.status : "stopped";
+    console.log(`${label} (${session.id})`);
+    console.log(`  status: ${status}`);
+    console.log(`  relays: ${session.relays.join(", ")}`);
+    console.log(`  policy: ${session.template}`);
+    if (session.uri) console.log(`  uri: ${session.uri}`);
+    else console.log("  uri: (pending; waiting for provider)");
+    if (session.lastClient) console.log(`  last client: ${session.lastClient}`);
+  }
+}
+
+async function manageConnections(prompter: PromptSession) {
+  console.log("\n🔗 Manage Connections");
+  console.log("  1) Generate bunker code");
+  console.log("  2) View bunker codes");
+  console.log("  3) List sessions");
+  console.log("  4) Stop a session");
+  console.log("  5) Delete a session");
+  console.log("  6) Back");
+  const choice = (await prompter.input("Choose an option", "1")).trim();
+  switch (choice) {
+    case "1": {
+      const key = await ensureKeySelected(prompter);
+      await runBunkerFlow({ autoApprove: true, keyId: key.id, alias: `Bunker for ${key.label}` }, prompter);
+      break;
+    }
+    case "2":
+      await printBunkerCodes();
+      break;
+    case "3":
+      await printSessionsList();
+      break;
+    case "4": {
+      const sessionId = (await prompter.input("Enter session ID to stop", "")).trim();
+      if (!sessionId) {
+        console.log("Session ID is required.");
+        return;
+      }
+      await ensureServerRunning();
+      const response = await sendIPCRequest({ type: "stop-session", sessionId });
+      if (!response.ok) throw new Error(response.error);
+      log.success(`Stopped session ${sessionId}`);
+      break;
+    }
+    case "5": {
+      const sessionId = (await prompter.input("Enter session ID to delete", "")).trim();
+      if (!sessionId) {
+        console.log("Session ID is required.");
+        return;
+      }
+      await ensureServerRunning();
+      const response = await sendIPCRequest({ type: "delete-session", sessionId });
+      if (!response.ok) throw new Error(response.error);
+      log.success(`Deleted session ${sessionId}`);
+      break;
+    }
+    default:
+      console.log("Returning to main menu.");
+  }
+}
+
 async function runInteractiveShell() {
   const prompter = createPromptSession();
   try {
-    const key = await ensureKeySelected(prompter);
+    console.log("\n📋 Main Menu");
+    console.log("  1) Log in via Nostr Connect");
+    console.log("  2) Manage connections");
+    console.log("  3) Manage keys");
+    console.log("  4) Exit");
 
-    console.log("\n📋 Commands");
-    console.log("  1) Generate bunker code");
-    console.log("  2) Connect via Nostr Connect");
-
-    let action = (await prompter.input("Choose an action", "1")).trim();
-    while (!["1", "2"].includes(action)) {
-      action = (await prompter.input("Please enter 1 or 2", "1")).trim();
+    let action = (await prompter.input("Choose an option", "1")).trim();
+    while (!["1", "2", "3", "4"].includes(action)) {
+      action = (await prompter.input("Please enter 1-4", "1")).trim();
     }
 
-    if (action === "1") {
-      await runBunkerFlow({ autoApprove: true, keyId: key.id, alias: `Bunker for ${key.label}` }, prompter);
-    } else {
-      await runNostrConnectFlow({ autoApprove: true, keyId: key.id, alias: `NostrConnect for ${key.label}` }, prompter);
+    switch (action) {
+      case "1": {
+        const key = await ensureKeySelected(prompter);
+        await runNostrConnectFlow({ autoApprove: true, keyId: key.id, alias: `NostrConnect for ${key.label}` }, prompter);
+        break;
+      }
+      case "2":
+        await manageConnections(prompter);
+        break;
+      case "3":
+        await ensureKeySelected(prompter);
+        break;
+      default:
+        console.log("Goodbye!");
     }
   } catch (error) {
     log.error(error instanceof Error ? error.message : String(error));
@@ -133,13 +237,17 @@ program
   .option("-u, --uri <uri>", "nostrconnect:// URI to prefill")
   .option("-r, --relay <relays...>", "Relays to prefill", DEFAULT_RELAYS)
   .option("--auto-approve", "Automatically approve incoming requests", false)
+  .option("--policy <policyId>", "Signing policy id to preselect")
   .action(
     interactiveAction(
       async (
-        options: { uri?: string; relay?: string[]; autoApprove?: boolean },
+        options: { uri?: string; relay?: string[]; autoApprove?: boolean; policy?: string },
         prompter,
       ) => {
-        await runNostrConnectFlow({ uri: options.uri, relays: options.relay, autoApprove: options.autoApprove }, prompter);
+        await runNostrConnectFlow(
+          { uri: options.uri, relays: options.relay, autoApprove: options.autoApprove, template: options.policy },
+          prompter,
+        );
       },
     ),
   );
@@ -150,10 +258,11 @@ program
   .option("-r, --relay <relays...>", "Relays to prefill", DEFAULT_RELAYS)
   .option("--secret <secret>", "Secret to reuse instead of generating")
   .option("--auto-approve", "Automatically approve incoming requests", false)
+  .option("--policy <policyId>", "Signing policy id to preselect")
   .action(
     interactiveAction(
       async (
-        options: { relay?: string[]; secret?: string; autoApprove?: boolean },
+        options: { relay?: string[]; secret?: string; autoApprove?: boolean; policy?: string },
         prompter,
       ) => {
         await runBunkerFlow(
@@ -161,6 +270,7 @@ program
             relays: options.relay,
             secret: options.secret,
             autoApprove: options.autoApprove,
+            template: options.policy,
           },
           prompter,
         );
@@ -185,6 +295,15 @@ program
   });
 
 program
+  .command("bunker-codes")
+  .description("Display bunker URIs the server is currently advertising")
+  .action(
+    safeAction(async () => {
+      await printBunkerCodes();
+    }),
+  );
+
+program
   .command("server")
   .description("Start the long-running signing server")
   .action(async () => {
@@ -198,22 +317,7 @@ sessionsCommand
   .description("List all sessions known to the server")
   .action(
     safeAction(async () => {
-      await ensureServerRunning();
-      const response = await sendIPCRequest({ type: "list-sessions" });
-      if (!response.ok || !response.sessions) throw new Error("Failed to fetch sessions from server.");
-      if (response.sessions.length === 0) {
-        console.log("No sessions have been created yet.");
-        return;
-      }
-      for (const session of response.sessions) {
-        const status = session.active ? session.status : "stopped";
-        const label = session.alias || session.id;
-        console.log(
-          `${session.id} | [${session.type}] ${label} | key=${session.keyId} | relays=${session.relays.join(", ")} | status=${status}`,
-        );
-        if (session.uri) console.log(`  uri: ${session.uri}`);
-        if (session.lastClient) console.log(`  last client: ${session.lastClient}`);
-      }
+      await printSessionsList();
     }),
   );
 

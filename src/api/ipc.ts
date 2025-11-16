@@ -11,6 +11,7 @@ export type StartBunkerRequest = {
   relays: string[];
   secret?: string;
   autoApprove: boolean;
+  template?: string;
 };
 
 export type StartNostrConnectRequest = {
@@ -20,6 +21,7 @@ export type StartNostrConnectRequest = {
   relays: string[];
   uri: string;
   autoApprove: boolean;
+  template?: string;
 };
 
 export type StopSessionRequest = {
@@ -36,10 +38,20 @@ export type ListSessionsRequest = {
   type: "list-sessions";
 };
 
+export type ListActivityRequest = {
+  type: "list-activity";
+};
+
 export type RenameSessionRequest = {
   type: "rename-session";
   sessionId: string;
   alias: string;
+};
+
+export type UpdateSessionTemplateRequest = {
+  type: "update-session-template";
+  sessionId: string;
+  template: string;
 };
 
 export type PingRequest = {
@@ -56,12 +68,14 @@ export type IPCRequest =
   | StopSessionRequest
   | DeleteSessionRequest
   | ListSessionsRequest
+  | ListActivityRequest
   | RenameSessionRequest
+  | UpdateSessionTemplateRequest
   | PingRequest
   | ShutdownRequest;
 
 export type IPCResponse =
-  | { ok: true; bunkerUri?: string; sessionId?: string; sessions?: SessionInfo[] }
+  | { ok: true; bunkerUri?: string; sessionId?: string; sessions?: SessionInfo[]; activity?: ActivityEntrySummary[] }
   | { ok: false; error: string };
 
 export type SessionInfo = {
@@ -75,6 +89,18 @@ export type SessionInfo = {
   autoApprove: boolean;
   active: boolean;
   uri?: string;
+  template: string;
+};
+
+export type ActivityEntrySummary = {
+  id: string;
+  type: string;
+  summary: string;
+  sessionId?: string;
+  sessionLabel?: string;
+  client?: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
 };
 
 export function getSocketPath() {

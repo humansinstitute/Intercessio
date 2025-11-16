@@ -56,7 +56,7 @@ intercessio status
 
 **Nostr Connect flow**
 
-From the interactive launcher (`bun start`) pick option **2** to queue a nostrconnect session with the background server, or run the subcommand directly and follow the prompts. Flags simply pre-fill the answers:
+From the interactive launcher (`bun start`) pick **Log in via Nostr Connect** to queue a session with the background server, or run the subcommand directly and follow the prompts. Flags simply pre-fill the answers:
 
 ```bash
 intercessio nostr-connect \
@@ -70,7 +70,7 @@ intercessio nostr-connect \
 
 **Bunker flow**
 
-Pick option **1** from the interactive launcher (auto-approves every request by default) or run the subcommand directly:
+From the launcher choose **Manage connections → Generate bunker code** (auto-approves every request by default) or run the subcommand directly:
 
 ```bash
 intercessio bunker
@@ -98,6 +98,35 @@ intercessio sessions rename <id> "My App"
 ```
 
 Aliases are prompted for when you create sessions so you can easily identify them later.
+
+> Tip: In the interactive launcher (`bun run start`), pick **Manage connections** to access bunker generation, bunker-code inspection, and session management actions without remembering individual subcommands.
+
+## Inspecting bunker codes
+
+To see every bunker URI Intercessio is currently advertising (and the relays each session watches), run:
+
+```bash
+intercessio bunker-codes
+```
+
+This command queries the server, lists all bunker sessions (active or stopped), and prints their IDs, aliases, relays, URIs, and last-connected client info when available.
+
+## Web UI
+
+Prefer a browser instead of the CLI? Launch the lightweight dashboard:
+
+```bash
+bun run webui
+```
+
+By default it serves on `http://localhost:4173` (override with `INTERCESSIO_WEBUI_PORT`). The page lets you:
+
+- generate or import keys and pick the active key
+- request bunker sessions (with automatic shared-secret generation if you leave it blank)
+- inspect every session the signing server knows about
+- watch recent signing / connect activity streamed from the server
+
+The web UI talks to the same Unix-socket API as the CLI, so make sure `intercessio server` is already running in another terminal.
 
 ## Relays
 

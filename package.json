@@ -16,6 +16,7 @@
     "clean": "rm -rf dist",
     "dev": "bun run ./src/index.ts",
     "server": "bun run ./src/server.ts",
+    "webui": "bun run ./src/web/server.ts",
     "start": "bun run scripts/start.ts",
     "client": "bun run scripts/start.ts",
     "stop": "bun run scripts/stop.ts",

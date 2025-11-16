@@ -1,0 +1,17 @@
+{
+  "name": "Intercessio",
+  "short_name": "Intercessio",
+  "description": "Your signer, your policy.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/intercessio-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

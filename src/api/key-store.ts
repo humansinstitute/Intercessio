@@ -100,13 +100,30 @@ async function persistSecret(secretKey: Uint8Array, label: string, storage: KeyS
   return metadata;
 }
 
+export async function createKey(label?: string): Promise<KeyMetadata> {
+  const keys = await listKeys();
+  const defaultLabel = `Key ${keys.length + 1}`;
+  const finalLabel = label?.trim() || defaultLabel;
+  log.success("Generated new key pair");
+  return persistSecret(generateSecretKey(), finalLabel);
+}
+
+export async function importKey(secretInput: string, label?: string): Promise<KeyMetadata> {
+  const trimmed = secretInput.trim();
+  if (!trimmed) throw new Error("Private key material is required.");
+  const secretKey = normalizeToSecretKey(trimmed);
+  const keys = await listKeys();
+  const defaultLabel = `Imported Key ${keys.length + 1}`;
+  const finalLabel = label?.trim() || defaultLabel;
+  log.success("Imported provided key");
+  return persistSecret(secretKey, finalLabel);
+}
+
 export async function createKeyInteractive(prompter: PromptSession): Promise<KeyMetadata> {
   const keys = await listKeys();
   const defaultLabel = `Key ${keys.length + 1}`;
   const label = (await prompter.input("Label for this key", defaultLabel)).trim() || defaultLabel;
-
-  log.success("Generated new key pair");
-  return persistSecret(generateSecretKey(), label);
+  return createKey(label);
 }
 
 export async function importKeyInteractive(prompter: PromptSession): Promise<KeyMetadata> {
@@ -119,9 +136,7 @@ export async function importKeyInteractive(prompter: PromptSession): Promise<Key
     input = (await prompter.input("Private key is required. Paste it", "")).trim();
   }
 
-  const secretKey = normalizeToSecretKey(input);
-  log.success("Imported provided key");
-  return persistSecret(secretKey, label);
+  return importKey(input, label);
 }
 
 export async function getKeyRecordById(id: string): Promise<{ meta: KeyMetadata; secret: string } | null> {

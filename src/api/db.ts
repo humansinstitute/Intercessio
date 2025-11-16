@@ -28,9 +28,15 @@ function bootstrap(database: Database) {
       last_client TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      active INTEGER NOT NULL DEFAULT 1
+      active INTEGER NOT NULL DEFAULT 1,
+      template TEXT NOT NULL DEFAULT 'auto_sign'
     );
   `);
+  const columns = database.prepare(`PRAGMA table_info(sessions)`).all();
+  const hasTemplateColumn = columns.some((column: any) => column.name === "template");
+  if (!hasTemplateColumn) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN template TEXT NOT NULL DEFAULT 'auto_sign';`);
+  }
 }
 
 export async function getDB() {
@@ -55,6 +61,7 @@ export type SessionRecord = {
   createdAt: number;
   updatedAt: number;
   active: boolean;
+  template: string;
 };
 
 function rowToRecord(row: any): SessionRecord {
@@ -72,14 +79,15 @@ function rowToRecord(row: any): SessionRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     active: Boolean(row.active),
+    template: row.template ?? "auto_sign",
   };
 }
 
 export async function upsertSession(record: SessionRecord) {
   const database = await getDB();
   const stmt = database.prepare(`
-    INSERT INTO sessions (id, type, key_id, alias, relays, secret, uri, auto_approve, status, last_client, created_at, updated_at, active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (id, type, key_id, alias, relays, secret, uri, auto_approve, status, last_client, created_at, updated_at, active, template)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       alias = excluded.alias,
       relays = excluded.relays,
@@ -89,7 +97,8 @@ export async function upsertSession(record: SessionRecord) {
       status = excluded.status,
       last_client = excluded.last_client,
       updated_at = excluded.updated_at,
-      active = excluded.active
+      active = excluded.active,
+      template = excluded.template
   `);
   stmt.run(
     record.id,
@@ -105,6 +114,7 @@ export async function upsertSession(record: SessionRecord) {
     record.createdAt,
     record.updatedAt,
     record.active ? 1 : 0,
+    record.template,
   );
 }
 
