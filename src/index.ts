@@ -222,7 +222,7 @@ function safeAction<T extends any[]>(handler: (...args: T) => Promise<void>) {
 
 program
   .command("keygen")
-  .description("Create or import a signer key (stores secrets in macOS Keychain)")
+  .description("Create or import a signer key (stores secrets in system keychain or encrypted file)")
   .option("-i, --import", "Import an existing nsec/hex key", false)
   .action(
     interactiveAction(async ({ import: importFlag }: { import?: boolean }, prompter) => {

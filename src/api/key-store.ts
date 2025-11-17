@@ -7,12 +7,12 @@ import { normalizeToSecretKey } from "applesauce-core/helpers";
 import { CONFIG_DIR } from "./constants.js";
 import { PromptSession } from "./prompts.js";
 import { log } from "./logger.js";
-import { fetchSecretFromKeychain, storeSecretInKeychain } from "./keychain.js";
+import { fetchSecretFromKeychain, storeSecretInKeychain, getStorageType } from "./keychain.js";
 
 const KEY_LIST_FILE = path.join(CONFIG_DIR, "keys.json");
 const STATE_FILE = path.join(CONFIG_DIR, "state.json");
 
-export type KeyStorageType = "keychain";
+export type KeyStorageType = "keychain" | "file";
 
 export type KeyMetadata = {
   id: string;
@@ -74,7 +74,7 @@ export async function setActiveKeyId(id: string) {
   await writeState({ activeKeyId: id });
 }
 
-async function persistSecret(secretKey: Uint8Array, label: string, storage: KeyStorageType = "keychain") {
+async function persistSecret(secretKey: Uint8Array, label: string, storage?: KeyStorageType) {
   const keys = await listKeys();
   const id = nanoid(10);
   const npub = nip19.npubEncode(getPublicKey(secretKey));
@@ -83,13 +83,16 @@ async function persistSecret(secretKey: Uint8Array, label: string, storage: KeyS
 
   await storeSecretInKeychain(keychainAccount, nsec);
 
+  // Use the actual storage type if not specified
+  const actualStorage = storage || await getStorageType();
+
   const metadata: KeyMetadata = {
     id,
     label,
     npub,
     createdAt: new Date().toISOString(),
     keychainAccount,
-    storage,
+    storage: actualStorage,
   };
   await saveKeys([...keys, metadata]);
   await setActiveKeyId(metadata.id);
@@ -170,7 +173,7 @@ export async function showStoredKeyStatus() {
   console.log("Stored keys:");
   for (const key of keys) {
     const activeMarker = key.id === activeId ? "*" : " ";
-    const storageLabel = key.storage === "keychain" ? "Keychain" : key.storage;
+    const storageLabel = key.storage === "keychain" ? "Keychain" : key.storage === "file" ? "File" : key.storage;
     console.log(`${activeMarker} [${storageLabel}] ${key.label} (${key.npub}) - created ${key.createdAt}`);
   }
   console.log("* indicates the active key used by subcommands.");
