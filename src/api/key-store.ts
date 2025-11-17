@@ -7,12 +7,12 @@ import { normalizeToSecretKey } from "applesauce-core/helpers";
 import { CONFIG_DIR } from "./constants.js";
 import { PromptSession } from "./prompts.js";
 import { log } from "./logger.js";
-import { fetchSecretFromKeychain, storeSecretInKeychain, getStorageType } from "./keychain.js";
+import { fetchSecretFromKeychain, storeSecretInKeychainWithStorageType, getStorageType, deleteSecretFromKeychain } from "./keychain.js";
 
 const KEY_LIST_FILE = path.join(CONFIG_DIR, "keys.json");
 const STATE_FILE = path.join(CONFIG_DIR, "state.json");
 
-export type KeyStorageType = "keychain" | "file";
+export type KeyStorageType = "keychain" | "kwallet" | "gnome-keyring" | "file";
 
 export type KeyMetadata = {
   id: string;
@@ -81,10 +81,11 @@ async function persistSecret(secretKey: Uint8Array, label: string, storage?: Key
   const nsec = nip19.nsecEncode(secretKey);
   const keychainAccount = `intercessio-${id}`;
 
-  await storeSecretInKeychain(keychainAccount, nsec);
+  // Store the secret and get the actual storage type used
+  const { storageType } = await storeSecretInKeychainWithStorageType(keychainAccount, nsec);
 
-  // Use the actual storage type if not specified
-  const actualStorage = storage || await getStorageType();
+  // Use the actual storage type if not specified, otherwise use what was actually used
+  const actualStorage = storage || storageType;
 
   const metadata: KeyMetadata = {
     id,
@@ -173,11 +174,48 @@ export async function showStoredKeyStatus() {
   console.log("Stored keys:");
   for (const key of keys) {
     const activeMarker = key.id === activeId ? "*" : " ";
-    const storageLabel = key.storage === "keychain" ? "Keychain" : key.storage === "file" ? "File" : key.storage;
+    const storageLabel = key.storage === "keychain" ? "Keychain" :
+                        key.storage === "kwallet" ? "KDE Wallet" :
+                        key.storage === "gnome-keyring" ? "GNOME Keyring" :
+                        key.storage === "file" ? "File" : key.storage;
     console.log(`${activeMarker} [${storageLabel}] ${key.label} (${key.npub}) - created ${key.createdAt}`);
   }
   console.log("* indicates the active key used by subcommands.");
 }
+
+export async function deleteKey(id: string): Promise<void> {
+  const keys = await listKeys();
+  const keyIndex = keys.findIndex((k) => k.id === id);
+  if (keyIndex === -1) {
+    throw new Error(`Key with id ${id} not found`);
+  }
+  
+  const keyToDelete = keys[keyIndex];
+  
+  // Delete the secret from keychain
+  await deleteSecretFromKeychain(keyToDelete.keychainAccount);
+  
+  // Remove from key list
+  keys.splice(keyIndex, 1);
+  await saveKeys(keys);
+  
+  // If this was the active key, clear the active selection
+  const activeId = await getActiveKeyId();
+  if (activeId === id) {
+    // If there are other keys, set the first one as active
+    if (keys.length > 0) {
+      await setActiveKeyId(keys[0].id);
+    } else {
+      // No keys left, clear active key
+      const state = await readState();
+      delete state.activeKeyId;
+      await writeState(state);
+    }
+  }
+  
+  log.success(`Deleted key: ${keyToDelete.label} (${keyToDelete.npub})`);
+}
+
 export function formatPubkey(pubkey: string) {
   try {
     return nip19.npubEncode(pubkey);

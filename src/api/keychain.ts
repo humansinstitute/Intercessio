@@ -184,14 +184,52 @@ async function runSecretTool(args: string[]): Promise<string> {
   }
 }
 
-export async function storeSecretInKeychain(account: string, secret: string): Promise<void> {
+export async function storeSecretInKeychainWithStorageType(account: string, secret: string): Promise<{ storageType: "keychain" | "kwallet" | "gnome-keyring" | "file" }> {
+  // Try macOS keychain first
   if (await isMacOSKeychainAvailable()) {
     try {
       await runSecurity(["add-generic-password", "-a", account, "-s", SERVICE_NAME, "-w", secret, "-U"]);
-      return;
+      return { storageType: "keychain" };
     } catch (error) {
-      // Fallback to file storage if keychain fails
-      console.warn('Failed to store in macOS keychain, falling back to encrypted file storage');
+      console.warn('Failed to store in macOS keychain, trying alternatives...');
+    }
+  }
+  
+  // Try KDE Wallet
+  if (await isKWalletAvailable()) {
+    try {
+      await runKWallet(["kdewallet", "-f", "Passwords", "-w", account, "-p", secret]);
+      
+      // Verify the secret was stored correctly by fetching it back
+      const retrievedSecret = await runKWallet(["kdewallet", "-f", "Passwords", "-r", account]);
+      if (retrievedSecret.trim() !== secret) {
+        throw new Error(`KDE Wallet verification failed: stored secret doesn't match retrieved secret`);
+      }
+      
+      return { storageType: "kwallet" };
+    } catch (error) {
+      console.warn('Failed to store in KDE Wallet, trying alternatives...');
+    }
+  }
+  
+  // Try GNOME Keyring
+  if (await isGnomeKeyringAvailable()) {
+    try {
+      // secret-tool store requires attribute-value pairs, and the secret is read from stdin
+      const { spawn } = await import("node:child_process");
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("secret-tool", ["store", "--label=Intercessio", "account", account, "service", SERVICE_NAME]);
+        child.stdin.write(secret);
+        child.stdin.end();
+        child.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`secret-tool store failed with code ${code}`));
+        });
+        child.on('error', reject);
+      });
+      return { storageType: "gnome-keyring" };
+    } catch (error) {
+      console.warn('Failed to store in GNOME Keyring, falling back to encrypted file storage');
     }
   }
   
@@ -199,20 +237,44 @@ export async function storeSecretInKeychain(account: string, secret: string): Pr
   const secrets = await readFallbackSecrets();
   secrets[account] = secret;
   await writeFallbackSecrets(secrets);
+  return { storageType: "file" };
 }
 
-export async function getStorageType(): Promise<"keychain" | "file"> {
-  return (await isMacOSKeychainAvailable()) ? "keychain" : "file";
+export async function getStorageType(): Promise<"keychain" | "kwallet" | "gnome-keyring" | "file"> {
+  if (await isMacOSKeychainAvailable()) return "keychain";
+  if (await isKWalletAvailable()) return "kwallet";
+  if (await isGnomeKeyringAvailable()) return "gnome-keyring";
+  return "file";
 }
 
 export async function fetchSecretFromKeychain(account: string): Promise<string> {
+  // Try macOS keychain first
   if (await isMacOSKeychainAvailable()) {
     try {
       const stdout = await runSecurity(["find-generic-password", "-a", account, "-s", SERVICE_NAME, "-w"]);
       return stdout.trim();
     } catch (error) {
-      // Fallback to file storage if keychain fails
-      console.warn('Failed to fetch from macOS keychain, falling back to encrypted file storage');
+      console.warn('Failed to fetch from macOS keychain, trying alternatives...');
+    }
+  }
+  
+  // Try KDE Wallet
+  if (await isKWalletAvailable()) {
+    try {
+      const stdout = await runKWallet(["kdewallet", "-f", "Passwords", "-r", account]);
+      return stdout.trim();
+    } catch (error) {
+      console.warn('Failed to fetch from KDE Wallet, trying alternatives...');
+    }
+  }
+  
+  // Try GNOME Keyring
+  if (await isGnomeKeyringAvailable()) {
+    try {
+      const stdout = await runSecretTool(["lookup", "account", account, "service", SERVICE_NAME]);
+      return stdout.trim();
+    } catch (error) {
+      console.warn('Failed to fetch from GNOME Keyring, falling back to encrypted file storage');
     }
   }
   
@@ -226,18 +288,39 @@ export async function fetchSecretFromKeychain(account: string): Promise<string> 
 }
 
 export async function deleteSecretFromKeychain(account: string): Promise<void> {
+  // Try macOS keychain first
   if (await isMacOSKeychainAvailable()) {
     try {
       await runSecurity(["delete-generic-password", "-a", account, "-s", SERVICE_NAME]);
       return;
     } catch (error: any) {
       if (error?.code !== 44) {
-        // If it's not a "not found" error, try fallback
-        console.warn('Failed to delete from macOS keychain, falling back to encrypted file storage');
+        console.warn('Failed to delete from macOS keychain, trying alternatives...');
       } else {
-        // Item not found in keychain, try fallback
-        console.warn('Secret not found in macOS keychain, checking fallback storage');
+        console.warn('Secret not found in macOS keychain, trying alternatives...');
       }
+    }
+  }
+  
+  // Try KDE Wallet
+  if (await isKWalletAvailable()) {
+    try {
+      // Note: kwallet-query doesn't have a delete option, so we'll need to handle this differently
+      // For now, we'll skip the delete operation for KDE Wallet
+      console.warn('Delete operation not supported by kwallet-query, secret will remain in wallet');
+      return;
+    } catch (error) {
+      console.warn('Failed to delete from KDE Wallet, trying alternatives...');
+    }
+  }
+  
+  // Try GNOME Keyring
+  if (await isGnomeKeyringAvailable()) {
+    try {
+      await runSecretTool(["clear", "account", account, "service", SERVICE_NAME]);
+      return;
+    } catch (error) {
+      console.warn('Failed to delete from GNOME Keyring, falling back to encrypted file storage');
     }
   }
   

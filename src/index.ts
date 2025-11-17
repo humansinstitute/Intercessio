@@ -10,6 +10,7 @@ import {
   showStoredKeyStatus,
   getActiveKeyId,
   setActiveKeyId,
+  deleteKey,
   KeyMetadata,
 } from "./api/key-store.js";
 import { runBunkerFlow, runNostrConnectFlow } from "./api/flows.js";
@@ -42,8 +43,10 @@ async function ensureKeySelected(prompter: PromptSession): Promise<KeyMetadata> 
     });
     const generateOption = keys.length + 1;
     const importOption = keys.length + 2;
+    const deleteOption = keys.length + 3;
     console.log(`  ${generateOption}) Generate a new key`);
     console.log(`  ${importOption}) Import an existing nsec/hex key`);
+    console.log(`  ${deleteOption}) Delete a key`);
 
     const choice = Number(await prompter.input("Select option", "1"));
     if (Number.isInteger(choice) && choice >= 1 && choice <= keys.length) {
@@ -55,6 +58,28 @@ async function ensureKeySelected(prompter: PromptSession): Promise<KeyMetadata> 
       await createKeyInteractive(prompter);
     } else if (choice === importOption) {
       await importKeyInteractive(prompter);
+    } else if (choice === deleteOption) {
+      console.log("\nSelect a key to delete:");
+      keys.forEach((key, index) => {
+        console.log(`  ${index + 1}) ${key.label} (${key.npub.slice(0, 12)}…)`);
+      });
+      const deleteChoice = Number(await prompter.input("Enter key number to delete", ""));
+      if (Number.isInteger(deleteChoice) && deleteChoice >= 1 && deleteChoice <= keys.length) {
+        const keyToDelete = keys[deleteChoice - 1];
+        const confirm = (await prompter.input(`Are you sure you want to delete "${keyToDelete.label}"? This cannot be undone. (y/N)`, "n")).trim().toLowerCase();
+        if (confirm === "y" || confirm === "yes") {
+          try {
+            await deleteKey(keyToDelete.id);
+            console.log("Key deleted successfully.");
+          } catch (error) {
+            log.error(error instanceof Error ? error.message : String(error));
+          }
+        } else {
+          console.log("Delete cancelled.");
+        }
+      } else {
+        console.log("Invalid key selection.");
+      }
     } else {
       console.log("Please choose a valid option.");
     }
@@ -284,6 +309,43 @@ program
   .action(
     safeAction(async () => {
       await showStoredKeyStatus();
+    }),
+  );
+
+program
+  .command("delete-key")
+  .description("Delete a stored key")
+  .action(
+    interactiveAction(async (_: {}, prompter) => {
+      const keys = await listKeys();
+      if (keys.length === 0) {
+        console.log("No keys found to delete.");
+        return;
+      }
+      
+      console.log("\n🔑 Select a key to delete:");
+      keys.forEach((key, index) => {
+        console.log(`  ${index + 1}) ${key.label} (${key.npub.slice(0, 12)}…)`);
+      });
+      
+      const choice = Number(await prompter.input("Enter key number to delete", ""));
+      if (!Number.isInteger(choice) || choice < 1 || choice > keys.length) {
+        console.log("Invalid key selection.");
+        return;
+      }
+      
+      const keyToDelete = keys[choice - 1];
+      const confirm = (await prompter.input(`Are you sure you want to delete "${keyToDelete.label}"? This cannot be undone. (y/N)`, "n")).trim().toLowerCase();
+      if (confirm === "y" || confirm === "yes") {
+        try {
+          await deleteKey(keyToDelete.id);
+          console.log("Key deleted successfully.");
+        } catch (error) {
+          log.error(error instanceof Error ? error.message : String(error));
+        }
+      } else {
+        console.log("Delete cancelled.");
+      }
     }),
   );
 
