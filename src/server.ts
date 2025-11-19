@@ -28,7 +28,6 @@ import {
 } from "./api/db.js";
 import { recordActivity, ActivityType, listActivity } from "./api/activity-log.js";
 import { getTemplateById, DEFAULT_TEMPLATE_ID } from "./api/signing-templates.js";
-import { createApprovalTask, resolveApproval, summarizePendingApprovals, restorePendingApprovalTimers } from "./api/approvals.js";
 
 type RuntimeSession = {
   record: SessionRecord;
@@ -87,17 +86,6 @@ function logSessionEvent(record: SessionRecord, type: ActivityType, summary: str
     sessionLabel: record.alias || record.id,
     metadata,
   });
-}
-
-async function listApprovals(): Promise<IPCResponse> {
-  const approvals = await summarizePendingApprovals();
-  return { ok: true, approvals };
-}
-
-async function resolveApprovalRequest(id: string, decision: "approve" | "reject"): Promise<IPCResponse> {
-  const status = decision === "approve" ? "approved" : "rejected";
-  await resolveApproval(id, status);
-  return { ok: true };
 }
 
 function handleProviderActivity(record: SessionRecord, activity: ProviderActivity) {
@@ -404,12 +392,6 @@ async function handleRequest(req: IPCRequest): Promise<IPCResponse> {
     case "list-activity": {
       return { ok: true, activity: listActivity() };
     }
-    case "list-approvals": {
-      return listApprovals();
-    }
-    case "resolve-approval": {
-      return resolveApprovalRequest(req.id, req.decision);
-    }
     case "stop-session":
       return stopSession(req.sessionId);
     case "delete-session":
@@ -436,7 +418,6 @@ async function startServer() {
   const socketPath = getSocketPath();
   await ensureNoRunningInstance(socketPath);
   cleanupSocket();
-  await restorePendingApprovalTimers();
   await restoreSessionsOnBoot();
 
   const server = net.createServer((socket) => {

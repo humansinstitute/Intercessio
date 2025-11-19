@@ -56,13 +56,6 @@ async function loadActivity() {
   return response.activity ?? [];
 }
 
-async function loadApprovals() {
-  await ensureServerRunning();
-  const response = await sendIPCRequest({ type: "list-approvals" });
-  if (!response.ok) throw new HttpError(502, "Failed to fetch approvals from signing server.");
-  return response.approvals ?? [];
-}
-
 async function requireServerRunning() {
   try {
     await ensureServerRunning();
@@ -615,14 +608,12 @@ const APP_JS = `const state = {
   sessions: [],
   activity: [],
   templates: [],
-  approvals: [],
 };
 
 const toastEl = document.getElementById("toast");
 const keysList = document.getElementById("keys-list");
 const sessionsList = document.getElementById("sessions-list");
 const activityList = document.getElementById("activity-list");
-const approvalsList = document.getElementById("approvals-list");
 const bunkerKeySelect = document.getElementById("bunker-key");
 const bunkerTemplateSelect = document.getElementById("bunker-template");
 const bunkerTemplateHint = document.getElementById("bunker-template-hint");
@@ -967,51 +958,6 @@ function renderActivity() {
   activityList.innerHTML = items.join("");
 }
 
-function renderApprovals() {
-  if (!approvalsList) return;
-  if (!state.approvals.length) {
-    approvalsList.innerHTML = '<li class="muted">No pending approvals.</li>';
-    return;
-  }
-  const items = state.approvals
-    .map((task) => {
-      const label = task.sessionAlias || task.sessionId;
-      const summary = task.eventSummary || `kind=${task.eventKind ?? "?"}`;
-      const expires = new Date(task.expiresAt).toLocaleTimeString();
-      return (
-        '<li class="activity-item" data-approval="' +
-        task.id +
-        '">' +
-        "<strong>" +
-        label +
-        "</strong>" +
-        '<div class="muted">Client: ' +
-        task.client +
-        "</div>" +
-        '<div class="muted">Summary: ' +
-        summary +
-        "</div>" +
-        '<div class="muted">Policy: ' +
-        task.policyLabel +
-        "</div>" +
-        "<small>Expires: " +
-        expires +
-        "</small>" +
-        '<div style="margin-top:0.4rem; display:flex; gap:0.35rem; flex-wrap:wrap;">' +
-        '<button type="button" class="copy-btn" data-approval-approve="' +
-        task.id +
-        '">Approve</button>' +
-        '<button type="button" class="copy-btn danger-btn" data-approval-reject="' +
-        task.id +
-        '">Reject</button>' +
-        "</div>" +
-        "</li>"
-      );
-    })
-    .join("");
-  approvalsList.innerHTML = items;
-}
-
 async function refreshKeys() {
   const data = await fetchJSON("/api/keys");
   state.keys = data.keys || [];
@@ -1038,12 +984,6 @@ async function refreshActivity() {
   renderActivity();
 }
 
-async function refreshApprovals() {
-  const data = await fetchJSON("/api/approvals").catch(() => ({ approvals: [] }));
-  state.approvals = data.approvals || [];
-  renderApprovals();
-}
-
 async function refreshStatus() {
   const data = await fetchJSON("/api/status").catch(() => ({ serverRunning: false }));
   const bar = document.getElementById("server-status-bar");
@@ -1051,12 +991,6 @@ async function refreshStatus() {
     bar.style.background = data.serverRunning ? "#10b981" : "#ef4444";
   }
   document.body.setAttribute("data-server-running", data.serverRunning ? "true" : "false");
-}
-
-async function resolveApprovalDecision(id, decision) {
-  await fetchJSON("/api/approvals/resolve", { method: "POST", body: { id, decision } });
-  showToast(`Approval ${decision}d.`);
-  await Promise.all([refreshApprovals(), refreshActivity()]);
 }
 
 document.getElementById("generate-key-form").addEventListener("submit", async (event) => {
@@ -1197,28 +1131,12 @@ sessionsList.addEventListener("click", async (event) => {
   }
 });
 
-approvalsList?.addEventListener("click", async (event) => {
-  const target = event.target;
-  if (!target.matches) return;
-  const approveId = target.getAttribute("data-approval-approve");
-  const rejectId = target.getAttribute("data-approval-reject");
-  const id = approveId || rejectId;
-  if (!id) return;
-  const decision = approveId ? "approve" : "reject";
-  try {
-    await resolveApprovalDecision(id, decision);
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : String(error));
-  }
-});
-
 async function init() {
   setupMenu();
   setupThemeSwitcher();
-  await Promise.all([refreshKeys(), refreshTemplates(), refreshSessions(), refreshActivity(), refreshApprovals(), refreshStatus()]);
+  await Promise.all([refreshKeys(), refreshTemplates(), refreshSessions(), refreshActivity(), refreshStatus()]);
   setInterval(refreshSessions, 5000);
   setInterval(refreshActivity, 5000);
-  setInterval(refreshApprovals, 5000);
   setInterval(refreshStatus, 8000);
 }
 
@@ -1295,10 +1213,6 @@ async function apiRouter(request: Request, url: URL) {
       const activity = await loadActivity();
       return jsonResponse({ activity });
     }
-    if (request.method === "GET" && url.pathname === "/api/approvals") {
-      const approvals = await loadApprovals();
-      return jsonResponse({ approvals });
-    }
     if (request.method === "POST" && url.pathname === "/api/sessions/delete") {
       const body = await parseJson(request);
       if (typeof body?.sessionId !== "string") throw new HttpError(400, "sessionId is required.");
@@ -1349,17 +1263,6 @@ async function apiRouter(request: Request, url: URL) {
         template,
       });
       if (!response.ok) throw new HttpError(502, response.error ?? "Failed to update session template.");
-      return jsonResponse({ ok: true });
-    }
-    if (request.method === "POST" && url.pathname === "/api/approvals/resolve") {
-      const body = await parseJson(request);
-      if (typeof body?.id !== "string") throw new HttpError(400, "id is required.");
-      if (body?.decision !== "approve" && body?.decision !== "reject") {
-        throw new HttpError(400, "decision must be approve or reject.");
-      }
-      await ensureServerRunning();
-      const response = await sendIPCRequest({ type: "resolve-approval", id: body.id, decision: body.decision });
-      if (!response.ok) throw new HttpError(502, response.error ?? "Failed to resolve approval.");
       return jsonResponse({ ok: true });
     }
     throw new HttpError(404, "Route not found.");
