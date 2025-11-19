@@ -37,6 +37,23 @@ function bootstrap(database: Database) {
   if (!hasTemplateColumn) {
     database.exec(`ALTER TABLE sessions ADD COLUMN template TEXT NOT NULL DEFAULT 'auto_sign';`);
   }
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS approval_tasks (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      session_alias TEXT,
+      session_type TEXT NOT NULL,
+      client TEXT NOT NULL,
+      event_kind INTEGER,
+      event_summary TEXT,
+      policy_id TEXT NOT NULL,
+      policy_label TEXT NOT NULL,
+      draft_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      status TEXT NOT NULL
+    );
+  `);
 }
 
 export async function getDB() {
@@ -154,4 +171,83 @@ export async function deleteSession(id: string) {
 export async function updateSessionAlias(id: string, alias: string) {
   const database = await getDB();
   database.prepare(`UPDATE sessions SET alias = ?, updated_at = ? WHERE id = ?`).run(alias, Date.now(), id);
+}
+
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+
+export type ApprovalTaskRecord = {
+  id: string;
+  sessionId: string;
+  sessionAlias?: string;
+  sessionType: "bunker" | "nostr-connect";
+  client: string;
+  eventKind?: number;
+  eventSummary?: string;
+  policyId: string;
+  policyLabel: string;
+  draftJson: string;
+  createdAt: number;
+  expiresAt: number;
+  status: ApprovalStatus;
+};
+
+function rowToApproval(row: any): ApprovalTaskRecord {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    sessionAlias: row.session_alias ?? undefined,
+    sessionType: row.session_type,
+    client: row.client,
+    eventKind: row.event_kind ?? undefined,
+    eventSummary: row.event_summary ?? undefined,
+    policyId: row.policy_id,
+    policyLabel: row.policy_label,
+    draftJson: row.draft_json,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    status: row.status as ApprovalStatus,
+  };
+}
+
+export async function insertApprovalTask(record: ApprovalTaskRecord) {
+  const database = await getDB();
+  const stmt = database.prepare(`
+    INSERT INTO approval_tasks (id, session_id, session_alias, session_type, client, event_kind, event_summary, policy_id, policy_label, draft_json, created_at, expires_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    record.id,
+    record.sessionId,
+    record.sessionAlias ?? null,
+    record.sessionType,
+    record.client,
+    record.eventKind ?? null,
+    record.eventSummary ?? null,
+    record.policyId,
+    record.policyLabel,
+    record.draftJson,
+    record.createdAt,
+    record.expiresAt,
+    record.status,
+  );
+}
+
+export async function listApprovalTasks(statuses: ApprovalStatus[]): Promise<ApprovalTaskRecord[]> {
+  const database = await getDB();
+  const placeholders = statuses.map(() => "?").join(", ");
+  const rows = database
+    .prepare(`SELECT * FROM approval_tasks WHERE status IN (${placeholders}) ORDER BY created_at DESC`)
+    .all(...statuses);
+  return rows.map(rowToApproval);
+}
+
+export async function getApprovalTask(id: string): Promise<ApprovalTaskRecord | null> {
+  const database = await getDB();
+  const row = database.prepare(`SELECT * FROM approval_tasks WHERE id = ?`).get(id);
+  return row ? rowToApproval(row) : null;
+}
+
+export async function updateApprovalTaskStatus(id: string, status: ApprovalStatus) {
+  const database = await getDB();
+  database.prepare(`UPDATE approval_tasks SET status = ? WHERE id = ?`).run(status, id);
 }

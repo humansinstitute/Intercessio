@@ -48,6 +48,16 @@ export type RenameSessionRequest = {
   alias: string;
 };
 
+export type ListApprovalsRequest = {
+  type: "list-approvals";
+};
+
+export type ResolveApprovalRequest = {
+  type: "resolve-approval";
+  id: string;
+  decision: "approve" | "reject";
+};
+
 export type UpdateSessionTemplateRequest = {
   type: "update-session-template";
   sessionId: string;
@@ -69,13 +79,22 @@ export type IPCRequest =
   | DeleteSessionRequest
   | ListSessionsRequest
   | ListActivityRequest
+  | ListApprovalsRequest
+  | ResolveApprovalRequest
   | RenameSessionRequest
   | UpdateSessionTemplateRequest
   | PingRequest
   | ShutdownRequest;
 
 export type IPCResponse =
-  | { ok: true; bunkerUri?: string; sessionId?: string; sessions?: SessionInfo[]; activity?: ActivityEntrySummary[] }
+  | {
+      ok: true;
+      bunkerUri?: string;
+      sessionId?: string;
+      sessions?: SessionInfo[];
+      activity?: ActivityEntrySummary[];
+      approvals?: ApprovalSummary[];
+    }
   | { ok: false; error: string };
 
 export type SessionInfo = {
@@ -101,6 +120,21 @@ export type ActivityEntrySummary = {
   client?: string;
   timestamp: number;
   metadata?: Record<string, unknown>;
+};
+
+export type ApprovalSummary = {
+  id: string;
+  sessionId: string;
+  sessionAlias?: string;
+  sessionType: "bunker" | "nostr-connect";
+  client: string;
+  eventKind?: number;
+  eventSummary?: string;
+  policyId: string;
+  policyLabel: string;
+  createdAt: number;
+  expiresAt: number;
+  status: "pending" | "approved" | "rejected" | "expired";
 };
 
 export function getSocketPath() {

@@ -6,6 +6,7 @@ import { formatPubkey } from "./key-store.js";
 import { PromptSession } from "./prompts.js";
 import { log } from "./logger.js";
 import type { SigningTemplate } from "../signingTemplates/types.js";
+import { createApprovalTask } from "./approvals.js";
 
 export type ProviderActivity =
   | { type: "sign-request"; client: string; description: string; draft: EventTemplate }
@@ -78,17 +79,28 @@ function requestHandlerFactory(opts: ProviderSettings) {
       if (decision === "SIGN") {
         approved = await ensurePrompt(`Sign event for ${shortText(formatPubkey(client))}?`, false);
       } else if (decision === "REFER") {
-        if (autoApprove && !prompter) {
-          log.warn(
-            `${label}Policy ${policy.id} requires manual approval but session is auto-approving; rejecting request.`,
-          );
-          approved = false;
-        } else {
+        if (prompter) {
           approved = await ensurePrompt(
             `Policy ${policy.label} requires manual approval for ${shortText(formatPubkey(client))}. Approve?`,
             false,
             true,
           );
+        } else if (autoApprove) {
+          log.warn(
+            `${label}Policy ${policy.id} requires manual approval but session is auto-approving headlessly; rejecting request.`,
+          );
+          approved = false;
+        } else {
+          const { decision: approvalDecision } = await createApprovalTask({
+            sessionId: session.id,
+            sessionAlias: session.alias,
+            sessionType: session.type,
+            client,
+            draft,
+            policy,
+            expiresAt: Date.now() + 5 * 60 * 1000,
+          });
+          approved = await approvalDecision;
         }
       } else {
         log.warn(`${label}Policy ${policy.id} rejected request from ${shortText(formatPubkey(client))}`);
