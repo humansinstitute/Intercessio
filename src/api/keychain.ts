@@ -170,6 +170,7 @@ async function runKWallet(args: string[]): Promise<string> {
 // GNOME Keyring functions
 async function runSecretTool(args: string[]): Promise<string> {
   try {
+    console.log("RTUNGIN SECRET")
     const { stdout } = await execFileAsync("secret-tool", args);
     return stdout?.toString() ?? "";
   } catch (error: any) {
@@ -198,10 +199,21 @@ export async function storeSecretInKeychainWithStorageType(account: string, secr
   // Try KDE Wallet
   if (await isKWalletAvailable()) {
     try {
-      await runKWallet(["kdewallet", "-f", "Passwords", "-w", account, "-p", secret]);
+      // Use spawn to send secret through stdin
+      const { spawn } = await import("node:child_process");
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("kwallet-query", ["-w", account, "kdewallet", "--folder", "Passwords"]);
+        child.stdin.write(secret);
+        child.stdin.end();
+        child.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`kwallet-query store failed with code ${code}`));
+        });
+        child.on('error', reject);
+      });
       
       // Verify the secret was stored correctly by fetching it back
-      const retrievedSecret = await runKWallet(["kdewallet", "-f", "Passwords", "-r", account]);
+      const retrievedSecret = await runKWallet(["kdewallet", "--folder", "Passwords", "-r", account]);
       if (retrievedSecret.trim() !== secret) {
         throw new Error(`KDE Wallet verification failed: stored secret doesn't match retrieved secret`);
       }
@@ -217,8 +229,9 @@ export async function storeSecretInKeychainWithStorageType(account: string, secr
     try {
       // secret-tool store requires attribute-value pairs, and the secret is read from stdin
       const { spawn } = await import("node:child_process");
+
       await new Promise<void>((resolve, reject) => {
-        const child = spawn("secret-tool", ["store", "--label=Intercessio", "account", account, "service", SERVICE_NAME]);
+        const child = spawn("secret-tool", ["store", "--label=\"intercessio\"", account, "password"]);
         child.stdin.write(secret);
         child.stdin.end();
         child.on('close', (code) => {
@@ -261,7 +274,7 @@ export async function fetchSecretFromKeychain(account: string): Promise<string> 
   // Try KDE Wallet
   if (await isKWalletAvailable()) {
     try {
-      const stdout = await runKWallet(["kdewallet", "-f", "Passwords", "-r", account]);
+      const stdout = await runKWallet(["kdewallet", "--folder", "Passwords", "-r", account]);
       return stdout.trim();
     } catch (error) {
       console.warn('Failed to fetch from KDE Wallet, trying alternatives...');
