@@ -6,8 +6,9 @@ type NotificationPayload = {
 };
 
 export async function sendNtfyNotification(payload: NotificationPayload) {
-  const topic = process.env.NTFY_TOPIC?.trim() || process.env.INTERCESSIO_NTFY_TOPIC?.trim();
+  const topic = (process.env.NTFY_TOPIC || process.env.INTERCESSIO_NTFY_TOPIC || "").trim();
   if (!topic) return;
+  const url = topic.startsWith("http") ? topic : `https://ntfy.sh/${topic}`;
   const headers: Record<string, string> = {
     "content-type": "text/plain; charset=utf-8",
   };
@@ -16,7 +17,7 @@ export async function sendNtfyNotification(payload: NotificationPayload) {
   if (payload.priority) headers["Priority"] = String(payload.priority);
 
   try {
-    await fetch(topic, {
+    await fetch(url, {
       method: "POST",
       headers,
       body: payload.message,
