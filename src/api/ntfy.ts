@@ -1,5 +1,3 @@
-const DEFAULT_TOPIC = "https://ntfy.sh/5YgcLkpnfy74NKO19uw804ghudf-shush";
-
 type NotificationPayload = {
   title?: string;
   message: string;
@@ -8,7 +6,7 @@ type NotificationPayload = {
 };
 
 export async function sendNtfyNotification(payload: NotificationPayload) {
-  const topic = process.env.INTERCESSIO_NTFY_TOPIC?.trim() || DEFAULT_TOPIC;
+  const topic = process.env.NTFY_TOPIC?.trim() || process.env.INTERCESSIO_NTFY_TOPIC?.trim();
   if (!topic) return;
   const headers: Record<string, string> = {
     "content-type": "text/plain; charset=utf-8",
