@@ -8,7 +8,7 @@ type NotificationPayload = {
 export async function sendNtfyNotification(payload: NotificationPayload) {
   const topic = (process.env.NTFY_TOPIC || process.env.INTERCESSIO_NTFY_TOPIC || "").trim();
   if (!topic) return;
-  const url = topic.startsWith("http") ? topic : `https://ntfy.sh/${topic}`;
+  const url = `https://ntfy.sh/${topic.replace(/^https?:\/\//, "")}`;
   const headers: Record<string, string> = {
     "content-type": "text/plain; charset=utf-8",
   };
