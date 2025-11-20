@@ -1,4 +1,4 @@
-const DEFAULT_TOPIC = "https://ntfy.sh/5YgcLkpnfy74NK01gUw804ghudf-shush";
+const DEFAULT_TOPIC = "https://ntfy.sh/5YgcLkpnfy74NKO19uw804ghudf-shush";
 
 type NotificationPayload = {
   title?: string;
