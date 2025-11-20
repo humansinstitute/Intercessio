@@ -6,6 +6,7 @@ import { formatPubkey } from "./key-store.js";
 import { PromptSession } from "./prompts.js";
 import { log } from "./logger.js";
 import { createPendingApproval } from "./pending-approvals.js";
+import { sendNtfyNotification } from "./ntfy.js";
 import type { SigningTemplate } from "../signingTemplates/types.js";
 
 export type ProviderActivity =
@@ -89,7 +90,7 @@ function requestHandlerFactory(opts: ProviderSettings) {
           log.info(
             `${label}Policy ${policy.id} requires approval for ${shortText(formatPubkey(client))}; awaiting decision.`,
           );
-          const { decision } = createPendingApproval({
+          const { id: approvalId, decision } = createPendingApproval({
             sessionId: session.id,
             sessionLabel: session.alias,
             client,
@@ -97,6 +98,17 @@ function requestHandlerFactory(opts: ProviderSettings) {
             draft,
             policy: { id: policy.id, label: policy.label },
           });
+          const preview = describeEvent(draft);
+          const title = session.alias ? `${session.alias} approval` : `Approval for ${session.id}`;
+          const message = [
+            `Policy ${policy.label} requires approval.`,
+            `Session: ${session.alias || session.id}`,
+            `Client: ${formatPubkey(client)}`,
+            `Kind: ${draft.kind ?? "?"}`,
+            `Summary: ${preview}`,
+            `Approval ID: ${approvalId}`,
+          ].join("\n");
+          sendNtfyNotification({ title, message, tags: ["approval", "nostr"], priority: 4 });
           approved = await decision;
         }
       } else {
