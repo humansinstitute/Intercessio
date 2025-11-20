@@ -1,6 +1,7 @@
 import net from "node:net";
 import path from "node:path";
 import os from "node:os";
+import type { EventTemplate } from "nostr-tools";
 
 import { CONFIG_DIR } from "./constants.js";
 
@@ -42,6 +43,16 @@ export type ListActivityRequest = {
   type: "list-activity";
 };
 
+export type ListApprovalsRequest = {
+  type: "list-approvals";
+};
+
+export type ResolveApprovalRequest = {
+  type: "resolve-approval";
+  approvalId: string;
+  approved: boolean;
+};
+
 export type RenameSessionRequest = {
   type: "rename-session";
   sessionId: string;
@@ -69,13 +80,22 @@ export type IPCRequest =
   | DeleteSessionRequest
   | ListSessionsRequest
   | ListActivityRequest
+  | ListApprovalsRequest
+  | ResolveApprovalRequest
   | RenameSessionRequest
   | UpdateSessionTemplateRequest
   | PingRequest
   | ShutdownRequest;
 
 export type IPCResponse =
-  | { ok: true; bunkerUri?: string; sessionId?: string; sessions?: SessionInfo[]; activity?: ActivityEntrySummary[] }
+  | {
+      ok: true;
+      bunkerUri?: string;
+      sessionId?: string;
+      sessions?: SessionInfo[];
+      activity?: ActivityEntrySummary[];
+      approvals?: ApprovalSummary[];
+    }
   | { ok: false; error: string };
 
 export type SessionInfo = {
@@ -101,6 +121,17 @@ export type ActivityEntrySummary = {
   client?: string;
   timestamp: number;
   metadata?: Record<string, unknown>;
+};
+
+export type ApprovalSummary = {
+  id: string;
+  sessionId: string;
+  sessionLabel?: string;
+  client: string;
+  description: string;
+  draft: EventTemplate;
+  policy: { id: string; label: string };
+  createdAt: number;
 };
 
 export function getSocketPath() {

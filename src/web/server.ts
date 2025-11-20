@@ -56,6 +56,13 @@ async function loadActivity() {
   return response.activity ?? [];
 }
 
+async function loadApprovals() {
+  await ensureServerRunning();
+  const response = await sendIPCRequest({ type: "list-approvals" });
+  if (!response.ok) throw new HttpError(502, "Failed to fetch approvals from signing server.");
+  return response.approvals ?? [];
+}
+
 async function requireServerRunning() {
   try {
     await ensureServerRunning();
@@ -179,6 +186,14 @@ const INDEX_HTML = `<!doctype html>
       }
       body.theme-dark .session-meta {
         color: #d6d3d1;
+      }
+      body.theme-dark .approval-card {
+        background: rgba(41, 37, 36, 0.9);
+        border-color: #44403c;
+      }
+      body.theme-dark .event-preview {
+        background: rgba(5, 150, 105, 0.18);
+        color: #f5f5f4;
       }
       body {
         margin: 0;
@@ -312,6 +327,48 @@ const INDEX_HTML = `<!doctype html>
         color: var(--text-muted);
         display: block;
         font-size: 0.8rem;
+      }
+      .approvals-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin: 0;
+        padding: 0;
+      }
+      .approval-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.9rem;
+        background: var(--bg-raised);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+      }
+      .approval-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        justify-content: space-between;
+        font-size: 0.9rem;
+      }
+      .approval-meta {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+      }
+      .event-preview {
+        font-family: ui-monospace, "SFMono-Regular", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.82rem;
+        background: rgba(5, 150, 105, 0.04);
+        border-radius: 8px;
+        padding: 0.5rem;
+        color: var(--text-muted);
+        overflow-wrap: anywhere;
+      }
+      .approval-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
       }
       .policy-control select,
       select.template-select {
@@ -528,6 +585,15 @@ const INDEX_HTML = `<!doctype html>
           </div>
         </section>
         <section class="card">
+          <button type="button" class="section-toggle" data-section="approvals">
+            <h2>Approvals</h2>
+            <span class="chevron">▸</span>
+          </button>
+          <div id="approvals-list" class="approvals-list" data-section-content="approvals">
+            <div class="muted">No pending approvals.</div>
+          </div>
+        </section>
+        <section class="card">
           <button type="button" class="section-toggle" data-section="activity">
             <h2>Activity</h2>
             <span class="chevron">▸</span>
@@ -607,6 +673,7 @@ const APP_JS = `const state = {
   activeKeyId: null,
   sessions: [],
   activity: [],
+  approvals: [],
   templates: [],
 };
 
@@ -614,6 +681,7 @@ const toastEl = document.getElementById("toast");
 const keysList = document.getElementById("keys-list");
 const sessionsList = document.getElementById("sessions-list");
 const activityList = document.getElementById("activity-list");
+const approvalsList = document.getElementById("approvals-list");
 const bunkerKeySelect = document.getElementById("bunker-key");
 const bunkerTemplateSelect = document.getElementById("bunker-template");
 const bunkerTemplateHint = document.getElementById("bunker-template-hint");
@@ -782,6 +850,15 @@ async function copyText(value) {
     document.execCommand("copy");
     document.body.removeChild(tempInput);
   }
+}
+
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function renderKeys() {
@@ -958,6 +1035,61 @@ function renderActivity() {
   activityList.innerHTML = items.join("");
 }
 
+function renderApprovals() {
+  if (!approvalsList) return;
+  if (!state.approvals.length) {
+    approvalsList.innerHTML = '<div class="muted">No pending approvals.</div>';
+    return;
+  }
+  const cards = state.approvals
+    .map((approval) => {
+      const label = escapeHTML(approval.sessionLabel || approval.sessionId);
+      const client = escapeHTML(approval.client);
+      const policy = escapeHTML(approval.policy?.label || approval.policy?.id || "policy");
+      const kind = typeof approval.draft?.kind === "number" ? approval.draft.kind : "?";
+      const tags = Array.isArray(approval.draft?.tags) ? approval.draft.tags.length : 0;
+      const preview =
+        approval.draft?.content && approval.draft.content.length
+          ? escapeHTML(approval.draft.content.slice(0, 240))
+          : "(no content)";
+      const createdAt = new Date(approval.createdAt).toLocaleTimeString();
+      return (
+        '<div class="approval-card">' +
+        '<div class="approval-header">' +
+        "<strong>" +
+        label +
+        "</strong>" +
+        '<span class="approval-meta">' +
+        createdAt +
+        "</span>" +
+        "</div>" +
+        '<div class="approval-meta">Client ' +
+        client +
+        " · Policy " +
+        policy +
+        " · Kind " +
+        kind +
+        " · Tags " +
+        tags +
+        "</div>" +
+        '<div class="event-preview">' +
+        preview +
+        "</div>" +
+        '<div class="approval-actions">' +
+        '<button type="button" class="approval-action" data-action="approve" data-approval="' +
+        approval.id +
+        '">Approve</button>' +
+        '<button type="button" class="approval-action danger-btn" data-action="reject" data-approval="' +
+        approval.id +
+        '">Reject</button>' +
+        "</div>" +
+        "</div>"
+      );
+    })
+    .join("");
+  approvalsList.innerHTML = cards;
+}
+
 async function refreshKeys() {
   const data = await fetchJSON("/api/keys");
   state.keys = data.keys || [];
@@ -982,6 +1114,12 @@ async function refreshActivity() {
   const data = await fetchJSON("/api/activity").catch(() => ({ activity: [] }));
   state.activity = data.activity || [];
   renderActivity();
+}
+
+async function refreshApprovals() {
+  const data = await fetchJSON("/api/approvals").catch(() => ({ approvals: [] }));
+  state.approvals = data.approvals || [];
+  renderApprovals();
 }
 
 async function refreshStatus() {
@@ -1131,12 +1269,36 @@ sessionsList.addEventListener("click", async (event) => {
   }
 });
 
+approvalsList?.addEventListener("click", async (event) => {
+  const button = event.target.closest ? event.target.closest(".approval-action") : null;
+  if (!button) return;
+  const approvalId = button.dataset.approval;
+  const action = button.dataset.action;
+  if (!approvalId || !action) return;
+  const approved = action === "approve";
+  try {
+    await fetchJSON("/api/approvals/decision", { method: "POST", body: { approvalId, approved } });
+    showToast(approved ? "Request approved." : "Request rejected.");
+    await Promise.all([refreshApprovals(), refreshActivity()]);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : String(error));
+  }
+});
+
 async function init() {
   setupMenu();
   setupThemeSwitcher();
-  await Promise.all([refreshKeys(), refreshTemplates(), refreshSessions(), refreshActivity(), refreshStatus()]);
+  await Promise.all([
+    refreshKeys(),
+    refreshTemplates(),
+    refreshSessions(),
+    refreshApprovals(),
+    refreshActivity(),
+    refreshStatus(),
+  ]);
   setInterval(refreshSessions, 5000);
   setInterval(refreshActivity, 5000);
+  setInterval(refreshApprovals, 4000);
   setInterval(refreshStatus, 8000);
 }
 
@@ -1213,6 +1375,10 @@ async function apiRouter(request: Request, url: URL) {
       const activity = await loadActivity();
       return jsonResponse({ activity });
     }
+    if (request.method === "GET" && url.pathname === "/api/approvals") {
+      const approvals = await loadApprovals();
+      return jsonResponse({ approvals });
+    }
     if (request.method === "POST" && url.pathname === "/api/sessions/delete") {
       const body = await parseJson(request);
       if (typeof body?.sessionId !== "string") throw new HttpError(400, "sessionId is required.");
@@ -1263,6 +1429,19 @@ async function apiRouter(request: Request, url: URL) {
         template,
       });
       if (!response.ok) throw new HttpError(502, response.error ?? "Failed to update session template.");
+      return jsonResponse({ ok: true });
+    }
+    if (request.method === "POST" && url.pathname === "/api/approvals/decision") {
+      const body = await parseJson(request);
+      if (typeof body?.approvalId !== "string") throw new HttpError(400, "approvalId is required.");
+      if (typeof body?.approved !== "boolean") throw new HttpError(400, "approved flag is required.");
+      await ensureServerRunning();
+      const response = await sendIPCRequest({
+        type: "resolve-approval",
+        approvalId: body.approvalId,
+        approved: body.approved,
+      });
+      if (!response.ok) throw new HttpError(502, response.error ?? "Failed to resolve approval.");
       return jsonResponse({ ok: true });
     }
     throw new HttpError(404, "Route not found.");

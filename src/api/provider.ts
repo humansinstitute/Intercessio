@@ -5,6 +5,7 @@ import type { EventTemplate } from "nostr-tools";
 import { formatPubkey } from "./key-store.js";
 import { PromptSession } from "./prompts.js";
 import { log } from "./logger.js";
+import { createPendingApproval } from "./pending-approvals.js";
 import type { SigningTemplate } from "../signingTemplates/types.js";
 
 export type ProviderActivity =
@@ -78,17 +79,25 @@ function requestHandlerFactory(opts: ProviderSettings) {
       if (decision === "SIGN") {
         approved = await ensurePrompt(`Sign event for ${shortText(formatPubkey(client))}?`, false);
       } else if (decision === "REFER") {
-        if (autoApprove && !prompter) {
-          log.warn(
-            `${label}Policy ${policy.id} requires manual approval but session is auto-approving; rejecting request.`,
-          );
-          approved = false;
-        } else {
+        if (prompter) {
           approved = await ensurePrompt(
             `Policy ${policy.label} requires manual approval for ${shortText(formatPubkey(client))}. Approve?`,
             false,
             true,
           );
+        } else {
+          log.info(
+            `${label}Policy ${policy.id} requires approval for ${shortText(formatPubkey(client))}; awaiting decision.`,
+          );
+          const { decision } = createPendingApproval({
+            sessionId: session.id,
+            sessionLabel: session.alias,
+            client,
+            description,
+            draft,
+            policy: { id: policy.id, label: policy.label },
+          });
+          approved = await decision;
         }
       } else {
         log.warn(`${label}Policy ${policy.id} rejected request from ${shortText(formatPubkey(client))}`);

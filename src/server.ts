@@ -28,6 +28,11 @@ import {
 } from "./api/db.js";
 import { recordActivity, ActivityType, listActivity } from "./api/activity-log.js";
 import { getTemplateById, DEFAULT_TEMPLATE_ID } from "./api/signing-templates.js";
+import {
+  listPendingApprovals,
+  resolvePendingApproval,
+  rejectApprovalsForSession,
+} from "./api/pending-approvals.js";
 
 type RuntimeSession = {
   record: SessionRecord;
@@ -283,6 +288,7 @@ async function stopSession(sessionId: string, remove = false): Promise<IPCRespon
     runtimes.delete(sessionId);
   }
 
+  rejectApprovalsForSession(sessionId);
   await deactivateSession(sessionId);
   if (record) {
     logSessionEvent(record, "session-stop", `${record.alias || record.id} ${remove ? "deleted" : "stopped"}`);
@@ -391,6 +397,14 @@ async function handleRequest(req: IPCRequest): Promise<IPCResponse> {
     }
     case "list-activity": {
       return { ok: true, activity: listActivity() };
+    }
+    case "list-approvals": {
+      return { ok: true, approvals: listPendingApprovals() };
+    }
+    case "resolve-approval": {
+      const resolved = resolvePendingApproval(req.approvalId, req.approved);
+      if (!resolved) return { ok: false, error: "Approval not found" };
+      return { ok: true };
     }
     case "stop-session":
       return stopSession(req.sessionId);
