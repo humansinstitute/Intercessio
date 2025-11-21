@@ -108,14 +108,9 @@ function requestHandlerFactory(opts: ProviderSettings) {
             `Summary: ${preview}`,
             `Approval ID: ${approvalId}`,
           ].join("\n");
-          const explicitEndpoint = (
-            process.env.NTFY_APPROVAL_ENDPOINT ||
-            process.env.INTERCESSIO_NTFY_APPROVAL_ENDPOINT ||
-            ""
-          ).trim();
           const icLink = (process.env.IC_LINK || "").trim();
-          let decisionEndpoint = explicitEndpoint;
-          if (!decisionEndpoint && icLink) {
+          let decisionEndpoint = "";
+          if (icLink) {
             try {
               decisionEndpoint = new URL("/api/approvals/decision", icLink).toString();
             } catch {
