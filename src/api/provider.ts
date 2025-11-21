@@ -108,9 +108,20 @@ function requestHandlerFactory(opts: ProviderSettings) {
             `Summary: ${preview}`,
             `Approval ID: ${approvalId}`,
           ].join("\n");
-          const decisionEndpoint =
-            (process.env.NTFY_APPROVAL_ENDPOINT || process.env.INTERCESSIO_NTFY_APPROVAL_ENDPOINT || "").trim() ||
-            "";
+          const explicitEndpoint = (
+            process.env.NTFY_APPROVAL_ENDPOINT ||
+            process.env.INTERCESSIO_NTFY_APPROVAL_ENDPOINT ||
+            ""
+          ).trim();
+          const icLink = (process.env.IC_LINK || "").trim();
+          let decisionEndpoint = explicitEndpoint;
+          if (!decisionEndpoint && icLink) {
+            try {
+              decisionEndpoint = new URL("/api/approvals/decision", icLink).toString();
+            } catch {
+              // leave blank if IC_LINK is invalid
+            }
+          }
           const actions =
             decisionEndpoint.length > 0
               ? [
