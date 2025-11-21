@@ -108,7 +108,33 @@ function requestHandlerFactory(opts: ProviderSettings) {
             `Summary: ${preview}`,
             `Approval ID: ${approvalId}`,
           ].join("\n");
-          sendNtfyNotification({ title, message, tags: ["approval", "nostr"], priority: 4 });
+          const decisionEndpoint =
+            (process.env.NTFY_APPROVAL_ENDPOINT || process.env.INTERCESSIO_NTFY_APPROVAL_ENDPOINT || "").trim() ||
+            "";
+          const actions =
+            decisionEndpoint.length > 0
+              ? [
+                  {
+                    type: "http" as const,
+                    label: "Approve",
+                    url: decisionEndpoint,
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ approvalId, approved: true }),
+                    clear: true,
+                  },
+                  {
+                    type: "http" as const,
+                    label: "Reject",
+                    url: decisionEndpoint,
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ approvalId, approved: false }),
+                    clear: true,
+                  },
+                ]
+              : undefined;
+          sendNtfyNotification({ title, message, tags: ["approval", "nostr"], priority: 4, actions });
           approved = await decision;
         }
       } else {

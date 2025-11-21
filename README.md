@@ -28,3 +28,9 @@ bun run webui           # dashboard
 - Lets you generate/import keys, start bunker/nostr-connect sessions, and monitor activity from the browser.
 - Enforces signing policies via simple TypeScript functions (“vibe your own”).
 - (Coming soon) approvals over additional channels.
+
+## Notifications & approvals
+
+Set `NTFY_TOPIC=<your-topic>` (or `INTERCESSIO_NTFY_TOPIC`) to receive approval prompts via [ntfy](https://ntfy.sh). When a policy requires manual review, Intercessio sends a push that includes the approval ID and basic context.
+
+Expose the Web UI approval endpoint (`/api/approvals/decision`) somewhere reachable (for example via your reverse proxy) and point `NTFY_APPROVAL_ENDPOINT` (or `INTERCESSIO_NTFY_APPROVAL_ENDPOINT`) to that URL to add in-notification **Approve** / **Reject** buttons. The buttons issue POST requests with `{ "approvalId": "...", "approved": true|false }`, so you can resolve requests directly from the ntfy notification without opening the dashboard.
